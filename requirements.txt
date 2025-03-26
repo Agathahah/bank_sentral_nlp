@@ -175,3 +175,12 @@ wordcloud==1.9.4
 wrapt==1.17.2
 xxhash==3.5.0
 yarl==1.18.3
+streamlit==1.28.0
+pandas==1.5.3
+numpy==1.24.3
+matplotlib==3.7.1
+openpyxl==3.1.2
+google-api-python-client==2.86.0
+google-auth==2.17.3
+google-auth-oauthlib==1.0.0
+apscheduler
