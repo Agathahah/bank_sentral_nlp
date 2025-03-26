@@ -1,0 +1,37 @@
+# Paket core untuk aplikasi Streamlit
+streamlit==1.28.0
+pandas==1.5.3  # Versi yang lebih sesuai dengan Streamlit 1.28.0
+numpy==1.26.0  # Versi yang kompatibel dengan Python 3.12
+matplotlib==3.7.1
+openpyxl==3.1.2  # Untuk manipulasi Excel
+
+# Fitur auto-backup
+apscheduler==3.10.1
+
+# Integrasi Google Drive
+google-api-python-client==2.86.0
+google-auth==2.17.3
+google-auth-oauthlib==1.0.0
+
+# NLP dan pengolahan bahasa
+nltk==3.9.1
+scikit-learn==1.6.1  # Untuk model ML dasar dan evaluasi
+spacy==3.8.4  # Untuk NLP processor
+transformers==4.49.0  # Untuk menggunakan model indoBERT
+
+# Visualisasi dan analisis data
+seaborn==0.13.2
+wordcloud==1.9.4
+
+# Dependensi untuk Spacy
+blis==1.2.0
+catalogue==2.0.10
+cymem==2.0.11
+murmurhash==1.0.12
+preshed==3.0.9
+srsly==2.5.1
+thinc==8.3.4
+wasabi==1.1.1
+
+# Utilities
+tqdm==4.67.1  # Untuk progress bar
