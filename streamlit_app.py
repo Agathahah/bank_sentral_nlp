@@ -9,6 +9,8 @@ import base64
 import sys
 import matplotlib.pyplot as plt
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
+import threading
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +26,67 @@ MASTER_FILE = os.path.join(RESULTS_DIR, "data_for_annotation.xlsx")
 
 # Pastikan folder annotations ada
 os.makedirs(ANNOTATIONS_DIR, exist_ok=True)
+
+# Variabel untuk menyimpan scheduler
+scheduler = None
+
+# Fungsi untuk melakukan backup otomatis
+def auto_backup_job():
+    try:
+        # Cek semua file anotasi
+        for i in range(1, 4):
+            annotator_file = os.path.join(ANNOTATIONS_DIR, f"Annotator_{i}.xlsx")
+            if os.path.exists(annotator_file):
+                try:
+                    df = pd.read_excel(annotator_file)
+                    upload_to_gdrive(df, f"Annotator_{i}.xlsx")
+                    logger.info(f"Auto-backup: Successfully backed up Annotator {i} data")
+                except Exception as e:
+                    logger.error(f"Auto-backup: Error backing up Annotator {i} data: {e}")
+    except Exception as e:
+        logger.error(f"Auto-backup: Error in backup job: {e}")
+
+# Fungsi untuk memulai auto-backup
+def start_auto_backup(interval_minutes=30):
+    global scheduler
+    if scheduler:
+        scheduler.shutdown()
+    
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(auto_backup_job, 'interval', minutes=interval_minutes)
+    scheduler.start()
+    logger.info(f"Auto-backup scheduled every {interval_minutes} minutes")
+    return True
+
+# Custom CSS untuk tampilan yang lebih baik
+def load_custom_css():
+    st.markdown("""
+    <style>
+        .paragraph-text {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-width: 100%;
+            background-color: #f0f2f6;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            line-height: 1.5;
+            overflow-y: auto;
+            max-height: 400px;
+        }
+        
+        .stRadio > div {
+            display: flex;
+            flex-direction: row;
+            gap: 1rem;
+        }
+        
+        .highlight {
+            background-color: yellow;
+            padding: 0 2px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 # Fungsi debugging
 def show_debug_info():
@@ -100,6 +163,22 @@ def get_download_link(df, filename="anotasi.xlsx"):
     except Exception as e:
         logger.error(f"Error creating download link: {e}")
         return "Error creating download link"
+
+# Fungsi untuk highlight keyword dalam teks
+def highlight_text(text, keywords):
+    """Memberikan highlight pada kata kunci dalam teks"""
+    if not keywords or not isinstance(keywords, str):
+        return text
+    
+    words = [word.strip() for word in keywords.split(',') if word.strip()]
+    highlighted_text = text
+    
+    for word in words:
+        if word:
+            pattern = re.compile(r'\b' + re.escape(word) + r'\b', re.IGNORECASE)
+            highlighted_text = pattern.sub(f'<span class="highlight">{word}</span>', highlighted_text)
+    
+    return highlighted_text
 
 # Fungsi untuk upload ke Google Drive (opsional)
 def upload_to_gdrive(df, filename):
@@ -255,9 +334,13 @@ def show_annotation_page(annotator_name):
     selected_para_idx = st.selectbox("Pilih Paragraf:", range(len(para_options)), format_func=lambda x: para_options[x])
     row = doc_df.iloc[selected_para_idx]
     
-    # Tampilkan teks paragraf
+    # Tampilkan teks paragraf dengan format yang lebih baik
     st.markdown("### Teks Paragraf")
-    st.markdown(f"```\n{row['Teks_Paragraf']}\n```")
+    
+    # Gunakan custom CSS dengan highlight keywords
+    keywords = row['Keyword'] if 'Keyword' in row and pd.notna(row['Keyword']) else ""
+    highlighted_text = highlight_text(row['Teks_Paragraf'], keywords)
+    st.markdown(f'<div class="paragraph-text">{highlighted_text}</div>', unsafe_allow_html=True)
     
     # Form anotasi
     with st.form(key=f"form_{row['ID_Paragraf']}"):
@@ -289,13 +372,21 @@ def show_annotation_page(annotator_name):
         # Status anotasi
         is_final = st.checkbox(
             "Anotasi Final", 
-            value=bool(row.get('Anotasi_Final', False))
+            value=bool(row.get('Anotasi_Final', False)),
+            help="Centang jika anotasi untuk paragraf ini sudah selesai dan siap disimpan secara permanen"
         )
         
         # Google Drive Upload option
         use_gdrive = False
         if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
-            use_gdrive = st.checkbox("Simpan juga ke Google Drive", value=False)
+            use_gdrive = st.checkbox(
+                "Simpan juga ke Google Drive", 
+                value=False,
+                help="Centang untuk menyimpan hasil anotasi ke Google Drive (opsional)"
+            )
+        
+        # Tambahkan informasi untuk membantu pemahaman
+        st.info("Klik 'Simpan Anotasi' untuk menyimpan perubahan yang telah dilakukan. Pastikan mengaktifkan 'Anotasi Final' jika paragraf ini sudah selesai dianotasi.")
         
         submitted = st.form_submit_button("Simpan Anotasi")
         
@@ -307,6 +398,7 @@ def show_annotation_page(annotator_name):
                 df.at[idx, 'Topik_Utama'] = topic
                 df.at[idx, 'Keyword'] = keywords
                 df.at[idx, 'Anotasi_Final'] = is_final
+                df.at[idx, 'Terakhir_Diupdate'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
                 # Simpan ke file
                 df.to_excel(annotator_file, index=False)
@@ -464,6 +556,30 @@ def show_admin_page():
                 st.error(f"Error merging annotation files: {e}")
         else:
             st.warning("Tidak ada file anotasi yang ditemukan")
+    
+    # Tambahkan opsi untuk auto-backup ke Google Drive
+    st.subheader("Auto-Backup ke Google Drive")
+    
+    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+        backup_interval = st.number_input("Interval backup (menit)", min_value=5, max_value=120, value=30)
+        
+        if st.button("Mulai Auto-Backup"):
+            success = start_auto_backup(interval_minutes=backup_interval)
+            if success:
+                st.success(f"Auto-backup diaktifkan! Data akan dicadangkan setiap {backup_interval} menit")
+                if "auto_backup_active" not in st.session_state:
+                    st.session_state.auto_backup_active = True
+            else:
+                st.error("Gagal memulai auto-backup")
+        
+        if "auto_backup_active" in st.session_state and st.session_state.auto_backup_active:
+            if st.button("Hentikan Auto-Backup"):
+                if scheduler:
+                    scheduler.shutdown()
+                st.session_state.auto_backup_active = False
+                st.info("Auto-backup telah dihentikan")
+    else:
+        st.warning("Google Drive tidak dikonfigurasi. Auto-backup tidak tersedia.")
 
 # Fungsi utama aplikasi
 def main():
@@ -472,6 +588,9 @@ def main():
         page_icon="📊",
         layout="wide"
     )
+    
+    # Load custom CSS
+    load_custom_css()
     
     # Debug mode di sidebar
     if st.sidebar.checkbox("Debug Mode", False):
